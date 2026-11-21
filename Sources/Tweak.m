@@ -7,8 +7,10 @@
 // The iOS 16 Lock Screen builds its header from SBFLockScreenDateView:
 //   CSProminentTimeView         -> the big time label
 //   CSProminentSubtitleDateView -> the date label
-// This tweak hides the big time, draws a small time label of its own and
-// pins it to the right of the date, so the two read as one small row.
+// SpringBoard re-centres those system labels on every layout pass and renders
+// them through a vibrancy portal, so a frame we set on them does not stick.
+// This tweak therefore hides both, reads the date string the system produced
+// and draws one small row of its own: date, then the time beside it.
 
 #import <UIKit/UIKit.h>
 #import <os/log.h>
@@ -23,9 +25,11 @@
 #endif
 
 #define SC_MAX_TARGETS 8
-#define SC_ROW_GAP 6.0
-#define SC_ROW_MARGIN 12.0
-#define SC_TIME_FONT_SIZE 19.0
+#define SC_ROW_GAP 8.0
+#define SC_ROW_MARGIN 16.0
+#define SC_DATE_FONT_SIZE 22.0
+#define SC_TIME_FONT_SIZE 20.0
+#define SC_MIN_FONT_SIZE 13.0
 
 typedef void (*MSHookMessageExFn)(Class cls, SEL sel, IMP imp, IMP *result);
 
@@ -52,6 +56,7 @@ static IMP SCOriginalLayouts[SC_MAX_TARGETS];
 static NSInteger SCTargetCount = 0;
 
 static UIView *SCDateRoot = nil;
+static UILabel *SCDateLabel = nil;
 static UILabel *SCTimeLabel = nil;
 static NSDateFormatter *SCFormatter = nil;
 static NSTimer *SCEnforceTimer = nil;
@@ -141,7 +146,7 @@ static void SCHideGlassClockViews(UIView *root) {
     }
 }
 
-#pragma mark - Time text
+#pragma mark - Row
 
 static NSString *SCNowString(void) {
     if (SCFormatter == nil) {
@@ -153,21 +158,24 @@ static NSString *SCNowString(void) {
     return [SCFormatter stringFromDate:[NSDate date]];
 }
 
-static UILabel *SCTimeLabelCreate(void) {
+static UILabel *SCCreateLabel(void) {
     UILabel *label = [[UILabel alloc] initWithFrame:CGRectZero];
-    label.font = [UIFont monospacedDigitSystemFontOfSize:SC_TIME_FONT_SIZE
-                                                  weight:UIFontWeightSemibold];
     label.textColor = [UIColor colorWithWhite:1.0 alpha:0.96];
     label.shadowColor = [UIColor colorWithWhite:0.0 alpha:0.45];
     label.shadowOffset = CGSizeMake(0, 1);
     label.numberOfLines = 1;
     label.textAlignment = NSTextAlignmentCenter;
     label.userInteractionEnabled = NO;
-    label.text = SCNowString();
+    label.backgroundColor = [UIColor clearColor];
     return label;
 }
 
-#pragma mark - Layout
+static CGSize SCMeasure(NSString *text, UIFont *font) {
+    if (text.length == 0) {
+        return CGSizeZero;
+    }
+    return [text sizeWithAttributes:@{NSFontAttributeName: font}];
+}
 
 static void SCApply(UIView *root, BOOL dump) {
     if (root == nil) {
@@ -175,57 +183,93 @@ static void SCApply(UIView *root, BOOL dump) {
     }
     UIView *timeBox = SCFind(root, @"CSProminentTimeView");
     UIView *dateBox = SCFind(root, @"CSProminentSubtitleDateView");
-    UILabel *dateLabel = SCFirstLabel(dateBox);
-    if (dateBox == nil || dateLabel == nil) {
+    UILabel *systemDate = SCFirstLabel(dateBox);
+    if (dateBox == nil || systemDate == nil) {
         return;
     }
+
+    NSString *dateText = systemDate.attributedText.length
+                             ? systemDate.attributedText.string
+                             : systemDate.text;
+    if (dateText.length == 0) {
+        return;
+    }
+    CGRect dateRect = [systemDate.superview convertRect:systemDate.frame toView:root];
 
     if (timeBox != nil) {
         timeBox.hidden = YES;
     }
+    systemDate.hidden = YES;
     SCHideGlassClockViews(root);
 
+    if (SCDateLabel == nil) {
+        SCDateLabel = SCCreateLabel();
+    }
     if (SCTimeLabel == nil) {
-        SCTimeLabel = SCTimeLabelCreate();
+        SCTimeLabel = SCCreateLabel();
+    }
+    if (SCDateLabel.superview != root) {
+        [root addSubview:SCDateLabel];
+    }
+    if (SCTimeLabel.superview != root) {
+        [root addSubview:SCTimeLabel];
+    }
+    if (![SCDateLabel.text isEqualToString:dateText]) {
+        SCDateLabel.text = dateText;
     }
     NSString *now = SCNowString();
     if (![SCTimeLabel.text isEqualToString:now]) {
         SCTimeLabel.text = now;
     }
-    if (SCTimeLabel.superview != root) {
-        [root addSubview:SCTimeLabel];
+
+    CGFloat available = root.bounds.size.width - SC_ROW_MARGIN * 2.0;
+    CGFloat dateSize = SC_DATE_FONT_SIZE;
+    CGFloat timeSize = SC_TIME_FONT_SIZE;
+    UIFont *dateFont = nil;
+    UIFont *timeFont = nil;
+    CGSize dateMeasure = CGSizeZero;
+    CGSize timeMeasure = CGSizeZero;
+
+    for (NSInteger attempt = 0; attempt < 8; attempt++) {
+        dateFont = [UIFont systemFontOfSize:dateSize weight:UIFontWeightSemibold];
+        timeFont = [UIFont monospacedDigitSystemFontOfSize:timeSize
+                                                    weight:UIFontWeightSemibold];
+        dateMeasure = SCMeasure(dateText, dateFont);
+        timeMeasure = SCMeasure(now, timeFont);
+        CGFloat total = dateMeasure.width + SC_ROW_GAP + timeMeasure.width;
+        if (total <= available || dateSize <= SC_MIN_FONT_SIZE) {
+            break;
+        }
+        CGFloat factor = available / total;
+        dateSize = MAX(SC_MIN_FONT_SIZE, dateSize * factor);
+        timeSize = MAX(SC_MIN_FONT_SIZE, timeSize * factor);
     }
 
-    CGRect dateRect = [dateLabel.superview convertRect:dateLabel.frame toView:root];
-    CGSize timeSize = [SCTimeLabel sizeThatFits:CGSizeMake(CGFLOAT_MAX, CGFLOAT_MAX)];
-    CGFloat boundsWidth = root.bounds.size.width;
-    CGFloat total = dateRect.size.width + SC_ROW_GAP + timeSize.width;
-    if (total > boundsWidth - SC_ROW_MARGIN * 2.0) {
-        SCTimeLabel.font = [UIFont monospacedDigitSystemFontOfSize:SC_TIME_FONT_SIZE - 3.0
-                                                          weight:UIFontWeightSemibold];
-        timeSize = [SCTimeLabel sizeThatFits:CGSizeMake(CGFLOAT_MAX, CGFLOAT_MAX)];
-        total = dateRect.size.width + SC_ROW_GAP + timeSize.width;
+    if (![SCDateLabel.font.fontName isEqualToString:dateFont.fontName] ||
+        fabs(SCDateLabel.font.pointSize - dateFont.pointSize) > 0.05) {
+        SCDateLabel.font = dateFont;
+    }
+    if (![SCTimeLabel.font.fontName isEqualToString:timeFont.fontName] ||
+        fabs(SCTimeLabel.font.pointSize - timeFont.pointSize) > 0.05) {
+        SCTimeLabel.font = timeFont;
     }
 
-    CGFloat rowLeft = (boundsWidth - total) / 2.0;
-    if (rowLeft < SC_ROW_MARGIN) {
-        rowLeft = SC_ROW_MARGIN;
-    }
+    CGFloat total = dateMeasure.width + SC_ROW_GAP + timeMeasure.width;
+    CGFloat rowLeft = (root.bounds.size.width - total) / 2.0;
     CGFloat centerY = CGRectGetMidY(dateRect);
 
-    CGRect dateTarget = CGRectMake(rowLeft, dateRect.origin.y,
-                                   dateRect.size.width, dateRect.size.height);
-    dateLabel.frame = [root convertRect:dateTarget toView:dateLabel.superview];
+    SCTimeLabel.frame = CGRectMake(rowLeft, centerY - timeMeasure.height / 2.0,
+                                   timeMeasure.width, timeMeasure.height);
+    SCDateLabel.frame = CGRectMake(rowLeft + timeMeasure.width + SC_ROW_GAP,
+                                   centerY - dateMeasure.height / 2.0,
+                                   dateMeasure.width, dateMeasure.height);
 
-    SCTimeLabel.frame = CGRectMake(rowLeft + dateRect.size.width + SC_ROW_GAP,
-                                   centerY - timeSize.height / 2.0,
-                                   timeSize.width, timeSize.height);
-
-    if (dump && SCDumps < 60) {
+    if (dump && SCDumps < 1) {
         SCDumps++;
         NSMutableString *out = [NSMutableString string];
-        [out appendFormat:@"state %ld rowLeft=%.1f total=%.1f\n",
-                          (long)SCDumps, rowLeft, total];
+        [out appendFormat:@"state %ld left=%.1f total=%.1f date=%.1f time=%.1f fonts=%.1f/%.1f\n",
+                          (long)SCDumps, rowLeft, total,
+                          dateMeasure.width, timeMeasure.width, dateSize, timeSize];
         SCDumpView(root, 0, out);
         SCLogBlock(out);
     }

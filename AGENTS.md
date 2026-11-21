@@ -27,8 +27,11 @@ SBFLockScreenDateView
         CSProminentEmptyElementView
 ```
 - 钩 `-[SBFLockScreenDateView layoutSubviews]`，在原实现之后改布局；再留一个 1 秒定时器兜底并刷新时间文本。
-- 不要用 transform 缩放系统时间标签：系统每轮布局都会重设它的 frame，bounds 会被放大到爆炸。
-  自己的标签更稳。
+- 系统的时间/日期标签都不能直接改：SpringBoard 每轮布局会把它们拉回原位并居中，而且可见画面是
+  `BSUIVibrancyAnimatingPortalView` 那条链路渲染的，改 frame 不生效（实测：日期原地不动，时间压在上面）。
+  做法是把两个系统标签都隐藏，读走系统给的日期文本，自己画两个 UILabel：**时间在左、日期在右**，
+  整行居中；放不下时按比例缩字号（最小 13）。
+- 当前只留一次布局日志（`SCDumps < 1`），方便确认生效，又不刷屏。
 
 ## 设备上的冲突
 - 用户装了 **SystemBoxClockGlass**（`com.wkk.systembox`），它在锁屏时钟位置画玻璃面板
