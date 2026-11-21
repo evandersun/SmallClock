@@ -12,7 +12,7 @@ stage="$(mktemp -d "${TMPDIR:?}stage.XXXXXX")"
 trap 'rm -rf -- "${stage:?}"' EXIT
 
 NAME=SmallClock
-VERSION=1.2.0
+VERSION=1.2.1
 PKGID=com.evander.smallclock
 PREFS_NAME=SmallClockPrefs
 PREFS_DEV=/usr/share/apelin/development/wiki.qaq.apelin.dev.preferences/support

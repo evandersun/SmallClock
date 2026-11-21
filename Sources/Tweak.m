@@ -51,11 +51,8 @@ static MSHookMessageExFn SCHookMessageExFunction(void) {
     return fn;
 }
 
-static Class SCTargets[SC_MAX_TARGETS];
-static IMP SCOriginalLayouts[SC_MAX_TARGETS];
-static NSInteger SCTargetCount = 0;
-
 static UIView *SCDateRoot = nil;
+static BOOL SCApplying = NO;
 static UILabel *SCDateLabel = nil;
 static UILabel *SCTimeLabel = nil;
 static UILabel *SCBatteryLabel = nil;
@@ -100,7 +97,7 @@ static BOOL SCIsEnabled(void) {
 static NSUInteger SCViewCount = 0;
 
 static UIView *SCFindView(UIView *root, NSString *fragment, NSInteger depth) {
-    if (root == nil || depth > 8 || SCViewCount++ > 200) {
+    if (root == nil || depth > 30 || SCViewCount++ > 4000) {
         return nil;
     }
     if ([NSStringFromClass(root.class) containsString:fragment]) {
@@ -143,7 +140,9 @@ static void SCHideGlassClockViews(UIView *root) {
     for (UIView *subview in root.subviews) {
         NSString *name = NSStringFromClass(subview.class);
         if ([name hasPrefix:@"LGClock"]) {
-            subview.hidden = YES;
+            if (!subview.hidden) {
+                subview.hidden = YES;
+            }
             continue;
         }
         SCHideGlassClockViews(subview);
@@ -200,6 +199,15 @@ static CGSize SCMeasure(NSString *text, UIFont *font) {
     return [text sizeWithAttributes:@{NSFontAttributeName: font}];
 }
 
+static void SCSetFrame(UIView *view, CGRect rect) {
+    if (view == nil) {
+        return;
+    }
+    if (!CGRectEqualToRect(view.frame, rect)) {
+        view.frame = rect;
+    }
+}
+
 // Anything else that draws text in the Lock Screen header (the charging
 // percentage the system or a tweak shows there, a subtitle, the system date)
 // goes away with the clock; only our own labels stay.
@@ -207,7 +215,7 @@ static void SCHideOtherLabels(UIView *view) {
     for (UIView *subview in view.subviews) {
         if ([subview isKindOfClass:[UILabel class]] &&
             subview != SCDateLabel && subview != SCTimeLabel &&
-            subview != SCBatteryLabel) {
+            subview != SCBatteryLabel && !subview.hidden) {
             subview.hidden = YES;
         }
         SCHideOtherLabels(subview);
@@ -255,13 +263,17 @@ static void SCApply(UIView *root) {
         os_log(SCLog(), "enabled: small row applied");
     }
 
-    if (timeBox != nil) {
+    if (timeBox != nil && !timeBox.hidden) {
         timeBox.hidden = YES;
     }
     // The whole system header (clock, date, vibrancy replicas, charging text)
     // is replaced by our row.
-    displayView.hidden = YES;
-    systemDate.hidden = YES;
+    if (!displayView.hidden) {
+        displayView.hidden = YES;
+    }
+    if (!systemDate.hidden) {
+        systemDate.hidden = YES;
+    }
     SCHideGlassClockViews(root);
 
     if (SCDateLabel == nil) {
@@ -292,9 +304,15 @@ static void SCApply(UIView *root) {
     }
     NSString *batteryText = SCPrefBool(@"battery", NO) ? SCBatteryString() : nil;
 
-    SCDateLabel.hidden = NO;
-    SCTimeLabel.hidden = NO;
-    SCBatteryLabel.hidden = (batteryText == nil);
+    if (SCDateLabel.hidden) {
+        SCDateLabel.hidden = NO;
+    }
+    if (SCTimeLabel.hidden) {
+        SCTimeLabel.hidden = NO;
+    }
+    if (SCBatteryLabel.hidden != (batteryText == nil)) {
+        SCBatteryLabel.hidden = (batteryText == nil);
+    }
     if (![SCDateLabel.text isEqualToString:dateText]) {
         SCDateLabel.text = dateText;
     }
@@ -354,55 +372,42 @@ static void SCApply(UIView *root) {
     CGFloat rowLeft = (root.bounds.size.width - total) / 2.0;
     CGFloat centerY = CGRectGetMidY(dateRect);
 
-    SCTimeLabel.frame = CGRectMake(rowLeft, centerY - timeMeasure.height / 2.0,
-                                   timeMeasure.width, timeMeasure.height);
-    SCDateLabel.frame = CGRectMake(rowLeft + timeMeasure.width + SC_ROW_GAP,
-                                   centerY - dateMeasure.height / 2.0,
-                                   dateMeasure.width, dateMeasure.height);
+    SCSetFrame(SCTimeLabel,
+               CGRectMake(rowLeft, centerY - timeMeasure.height / 2.0,
+                          timeMeasure.width, timeMeasure.height));
+    SCSetFrame(SCDateLabel,
+               CGRectMake(rowLeft + timeMeasure.width + SC_ROW_GAP,
+                          centerY - dateMeasure.height / 2.0,
+                          dateMeasure.width, dateMeasure.height));
     if (batteryText.length) {
-        SCBatteryLabel.frame =
-            CGRectMake(rowLeft + timeMeasure.width + SC_ROW_GAP + dateMeasure.width + SC_ROW_GAP,
-                       centerY - batteryMeasure.height / 2.0,
-                       batteryMeasure.width, batteryMeasure.height);
+        SCSetFrame(SCBatteryLabel,
+                   CGRectMake(rowLeft + timeMeasure.width + SC_ROW_GAP +
+                                  dateMeasure.width + SC_ROW_GAP,
+                              centerY - batteryMeasure.height / 2.0,
+                              batteryMeasure.width, batteryMeasure.height));
     }
 
     SCHideOtherLabels(root);
 }
 
-static IMP SCSavedOriginal(id self) {
-    Class cls = object_getClass(self);
-    for (NSInteger i = 0; i < SCTargetCount; i++) {
-        if (SCTargets[i] == cls) {
-            return SCOriginalLayouts[i];
+// Without a layout hook the date view is looked up in the window tree; if the
+// class is missing (another iOS) nothing happens at all.
+static UIView *SCFindDateView(void) {
+    for (UIScene *scene in UIApplication.sharedApplication.connectedScenes) {
+        if (![scene isKindOfClass:[UIWindowScene class]]) {
+            continue;
+        }
+        for (UIWindow *window in ((UIWindowScene *)scene).windows) {
+            if (window.hidden) {
+                continue;
+            }
+            UIView *found = SCFind(window, @"SBFLockScreenDateView");
+            if (found != nil) {
+                return found;
+            }
         }
     }
-    return NULL;
-}
-
-static void SCHookedLayoutSubviews(UIView *self, SEL _cmd) {
-    IMP original = SCSavedOriginal(self);
-    if (original != NULL) {
-        ((void (*)(id, SEL))original)(self, _cmd);
-    }
-    SCDateRoot = self;
-    SCApply(self);
-}
-
-static void SCInstallLayoutHook(Class cls) {
-    if (cls == Nil || SCTargetCount >= SC_MAX_TARGETS) {
-        return;
-    }
-    MSHookMessageExFn hook = SCHookMessageExFunction();
-    if (hook == NULL) {
-        os_log(SCLog(), "MSHookMessageEx unavailable");
-        return;
-    }
-    IMP original = NULL;
-    hook(cls, @selector(layoutSubviews), (IMP) SCHookedLayoutSubviews, &original);
-    SCTargets[SCTargetCount] = cls;
-    SCOriginalLayouts[SCTargetCount] = original;
-    SCTargetCount++;
-    os_log(SCLog(), "hooked %{public}s", class_getName(cls));
+    return nil;
 }
 
 // SystemBoxClockGlass puts its glass clock back after any plain hide, so its
@@ -445,12 +450,23 @@ static void SCInstallGlassHideHook(void) {
 
 #pragma mark - Entry point
 
+// One pass a second, never from inside a layout pass: a layout hook that
+// changes the tree can loop on a system that puts its views back every time.
 static void SCEnforce(void) {
+    if (SCApplying) {
+        return;
+    }
     UIView *root = SCDateRoot;
+    if (root == nil || root.window == nil) {
+        root = SCFindDateView();
+        SCDateRoot = root;
+    }
     if (root == nil || root.window == nil) {
         return;
     }
+    SCApplying = YES;
     SCApply(root);
+    SCApplying = NO;
 }
 
 __attribute__((constructor)) static void SCTweakInitialize(void) {
@@ -459,15 +475,9 @@ __attribute__((constructor)) static void SCTweakInitialize(void) {
     if (objc_getClass("SpringBoard") == Nil) {
         return;
     }
-    Class dateView = objc_getClass("SBFLockScreenDateView");
-    if (dateView == Nil) {
-        os_log(SCLog(), "SBFLockScreenDateView missing");
+    if (objc_getClass("SBFLockScreenDateView") == Nil) {
+        os_log(SCLog(), "SBFLockScreenDateView missing, nothing to do");
         return;
-    }
-    SCInstallLayoutHook(dateView);
-    Class dateViewAX = objc_getClass("SBFLockScreenDateViewAccessibility");
-    if (dateViewAX != Nil) {
-        SCInstallLayoutHook(dateViewAX);
     }
     SCInstallGlassHideHook();
 
