@@ -60,35 +60,37 @@ static UILabel *SCDateLabel = nil;
 static UILabel *SCTimeLabel = nil;
 static NSDateFormatter *SCFormatter = nil;
 static NSTimer *SCEnforceTimer = nil;
-static NSInteger SCDumps = 0;
+static NSInteger SCLoggedState = -1;
+static BOOL SCEnabledCache = YES;
+static NSTimeInterval SCEnabledChecked = 0;
 
-#pragma mark - Diagnostics
-
-static void SCDumpView(UIView *view, NSInteger depth, NSMutableString *out) {
-    if (view == nil || depth > 7) {
-        return;
+// The switch in the settings pane writes "enabled" into the package's own
+// preferences domain; anything but an explicit false means on. The pane also
+// writes the plist file directly (the Settings app's cfprefsd write can be
+// dropped on iOS 16), so the file is read first.
+static BOOL SCIsEnabled(void) {
+    NSTimeInterval now = [NSDate timeIntervalSinceReferenceDate];
+    if (SCEnabledChecked > 0 && now - SCEnabledChecked < 0.5) {
+        return SCEnabledCache;
     }
-    [out appendFormat:@"%*s%@ (%.0f,%.0f %.0fx%.0f)%@\n",
-                     (int)(depth * 2), "", NSStringFromClass(view.class),
-                     view.frame.origin.x, view.frame.origin.y,
-                     view.frame.size.width, view.frame.size.height,
-                     view.hidden ? @" hidden" : @""];
-    for (UIView *subview in view.subviews) {
-        SCDumpView(subview, depth + 1, out);
-    }
-}
+    SCEnabledChecked = now;
 
-static void SCLogBlock(NSString *text) {
-    NSArray<NSString *> *lines = [text componentsSeparatedByString:@"\n"];
-    NSUInteger index = 0;
-    while (index < lines.count) {
-        NSMutableString *chunk = [NSMutableString string];
-        while (index < lines.count && chunk.length < 600) {
-            [chunk appendFormat:@"%@\n", lines[index]];
-            index++;
+    BOOL enabled = YES;
+    NSDictionary *stored =
+        [NSDictionary dictionaryWithContentsOfFile:
+            @"/var/mobile/Library/Preferences/com.evander.smallclock.plist"];
+    id value = stored[@"enabled"];
+    if (value == nil) {
+        value = CFBridgingRelease(CFPreferencesCopyAppValue(CFSTR("enabled"),
+                                                            CFSTR(APELIN_PACKAGE_ID)));
+    }
+    if (value != nil) {
+        if ([value respondsToSelector:@selector(boolValue)]) {
+            enabled = [value boolValue];
         }
-        os_log(SCLog(), "%{public}s", chunk.UTF8String);
     }
+    SCEnabledCache = enabled;
+    return enabled;
 }
 
 #pragma mark - View lookup
@@ -177,7 +179,7 @@ static CGSize SCMeasure(NSString *text, UIFont *font) {
     return [text sizeWithAttributes:@{NSFontAttributeName: font}];
 }
 
-static void SCApply(UIView *root, BOOL dump) {
+static void SCApply(UIView *root) {
     if (root == nil) {
         return;
     }
@@ -195,6 +197,25 @@ static void SCApply(UIView *root, BOOL dump) {
         return;
     }
     CGRect dateRect = [systemDate.superview convertRect:systemDate.frame toView:root];
+
+    if (!SCIsEnabled()) {
+        // Off: hand the header back to SpringBoard, untouched.
+        if (timeBox != nil) {
+            timeBox.hidden = NO;
+        }
+        systemDate.hidden = NO;
+        SCDateLabel.hidden = YES;
+        SCTimeLabel.hidden = YES;
+        if (SCLoggedState != 0) {
+            SCLoggedState = 0;
+            os_log(SCLog(), "disabled: system clock restored");
+        }
+        return;
+    }
+    if (SCLoggedState != 1) {
+        SCLoggedState = 1;
+        os_log(SCLog(), "enabled: small row applied");
+    }
 
     if (timeBox != nil) {
         timeBox.hidden = YES;
@@ -214,6 +235,8 @@ static void SCApply(UIView *root, BOOL dump) {
     if (SCTimeLabel.superview != root) {
         [root addSubview:SCTimeLabel];
     }
+    SCDateLabel.hidden = NO;
+    SCTimeLabel.hidden = NO;
     if (![SCDateLabel.text isEqualToString:dateText]) {
         SCDateLabel.text = dateText;
     }
@@ -263,16 +286,6 @@ static void SCApply(UIView *root, BOOL dump) {
     SCDateLabel.frame = CGRectMake(rowLeft + timeMeasure.width + SC_ROW_GAP,
                                    centerY - dateMeasure.height / 2.0,
                                    dateMeasure.width, dateMeasure.height);
-
-    if (dump && SCDumps < 1) {
-        SCDumps++;
-        NSMutableString *out = [NSMutableString string];
-        [out appendFormat:@"state %ld left=%.1f total=%.1f date=%.1f time=%.1f fonts=%.1f/%.1f\n",
-                          (long)SCDumps, rowLeft, total,
-                          dateMeasure.width, timeMeasure.width, dateSize, timeSize];
-        SCDumpView(root, 0, out);
-        SCLogBlock(out);
-    }
 }
 
 static IMP SCSavedOriginal(id self) {
@@ -291,7 +304,7 @@ static void SCHookedLayoutSubviews(UIView *self, SEL _cmd) {
         ((void (*)(id, SEL))original)(self, _cmd);
     }
     SCDateRoot = self;
-    SCApply(self, NO);
+    SCApply(self);
 }
 
 static void SCInstallLayoutHook(Class cls) {
@@ -319,10 +332,11 @@ static void (*SCGlassOriginals[SC_MAX_GLASS])(id self, SEL _cmd, BOOL hidden);
 static NSInteger SCGlassCount = 0;
 
 static void SCHookedGlassSetHidden(id self, SEL _cmd, BOOL hidden) {
+    BOOL force = SCIsEnabled();
     Class cls = object_getClass(self);
     for (NSInteger i = 0; i < SCGlassCount; i++) {
         if (SCGlassClasses[i] == cls && SCGlassOriginals[i] != NULL) {
-            SCGlassOriginals[i](self, _cmd, YES);
+            SCGlassOriginals[i](self, _cmd, force ? YES : hidden);
             return;
         }
     }
@@ -355,7 +369,7 @@ static void SCEnforce(void) {
     if (root == nil || root.window == nil) {
         return;
     }
-    SCApply(root, YES);
+    SCApply(root);
 }
 
 __attribute__((constructor)) static void SCTweakInitialize(void) {

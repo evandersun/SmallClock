@@ -2,9 +2,10 @@
 
 把 iOS 锁屏的大时钟缩成一小行，直接放进日期栏：左边是时间，右边是日期，整行居中。
 
-- 适用：iOS 16（在 iPhone X / iOS 16.7.15 上开发与测试）
+- 适用：iOS 16（在 iPhone X / iOS 16.7.15 上开发与测试），二进制同时带 arm64 与 arm64e 切片
 - 注入：SpringBoard（`com.apple.springboard`）
 - 包标识：`com.evander.smallclock`
+- 设置：设置 App 里的 **SmallClock** 一页，一个「小时间」开关
 
 ## 做了什么
 
@@ -16,6 +17,14 @@ iOS 16 的锁屏头部来自 `SBFLockScreenDateView`：`CSProminentTimeView` 里
 
 设备上若装了 **SystemBoxClockGlass**（`com.wkk.systembox`）的玻璃锁屏时钟，它画的
 `LGClockGlassView` / `LGClockReplacementTimeView` 会被强制隐藏——大玻璃面板和小时间行没法共存。
+
+## 开关
+
+设置 App ▸ SmallClock ▸ 小时间：打开是小数时间行，关闭立即把系统原来的大时钟交还回去，不用注销。
+
+开关值写在 `/var/mobile/Library/Preferences/com.evander.smallclock.plist` 的 `enabled` 键。
+iOS 16 上设置 App 通过 cfprefsd 写这个域会被丢掉，所以设置页自己把 plist 文件写出来，
+插件也优先读这个文件。
 
 ## 构建
 

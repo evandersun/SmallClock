@@ -31,7 +31,17 @@ SBFLockScreenDateView
   `BSUIVibrancyAnimatingPortalView` 那条链路渲染的，改 frame 不生效（实测：日期原地不动，时间压在上面）。
   做法是把两个系统标签都隐藏，读走系统给的日期文本，自己画两个 UILabel：**时间在左、日期在右**，
   整行居中；放不下时按比例缩字号（最小 13）。
-- 当前只留一次布局日志（`SCDumps < 1`），方便确认生效，又不刷屏。
+- 日志只留开关状态变化两行（`enabled: small row applied` / `disabled: system clock restored`）。
+
+## 设置面板
+- `Sources/Prefs.m` + `Resources/Root.plist` → `/Library/PreferenceBundles/SmallClockPrefs.bundle`，
+  入口 `/Library/PreferenceLoader/Preferences/SmallClock.plist`，开关写 `enabled`。
+- 坑：设置 App 通过 cfprefsd 写 `com.evander.smallclock` 域在 iOS 16 上会被丢掉（域文件根本没生成，
+  重启设置后开关又变回默认）。所以 `setPreferenceValue:specifier:` 里直接把
+  `/var/mobile/Library/Preferences/com.evander.smallclock.plist` 写出来，插件优先读这个文件。
+- 面板地址：`prefs:root=SmallClock` 可以直接打开。
+- arm64e 切片：本机 ld 对 arm64e 会报 “incompatible arm64e ABI compiler” 警告，但仍能产出切片，
+  包里 arm64 与 arm64e 都带（本机 A11 用 arm64，其它设备用 arm64e；arm64e 切片未在真机验证过）。
 
 ## 设备上的冲突
 - 用户装了 **SystemBoxClockGlass**（`com.wkk.systembox`），它在锁屏时钟位置画玻璃面板

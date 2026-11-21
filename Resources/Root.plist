@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>title</key>
+	<string>SmallClock</string>
+	<key>items</key>
+	<array>
+		<dict>
+			<key>cell</key>
+			<string>PSGroupCell</string>
+			<key>label</key>
+			<string>锁屏时钟</string>
+			<key>footerText</key>
+			<string>打开后锁屏的大时钟缩成一行，放在日期栏左侧，时间是“时:分”。关闭后恢复系统原来的大时钟，立即生效，不用注销。</string>
+		</dict>
+		<dict>
+			<key>cell</key>
+			<string>PSSwitchCell</string>
+			<key>label</key>
+			<string>小时间</string>
+			<key>key</key>
+			<string>enabled</string>
+			<key>default</key>
+			<true/>
+			<key>defaults</key>
+			<string>com.evander.smallclock</string>
+			<key>PostNotification</key>
+			<string>com.evander.smallclock/changed</string>
+		</dict>
+		<dict>
+			<key>cell</key>
+			<string>PSGroupCell</string>
+			<key>label</key>
+			<string>说明</string>
+			<key>footerText</key>
+			<string>若安装了 SystemBox 的玻璃锁屏时钟，开启本开关时它的玻璃大钟会被隐藏，两者不能同时显示。</string>
+		</dict>
+	</array>
+</dict>
+</plist>
