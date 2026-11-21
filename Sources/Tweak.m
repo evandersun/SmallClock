@@ -58,39 +58,41 @@ static NSInteger SCTargetCount = 0;
 static UIView *SCDateRoot = nil;
 static UILabel *SCDateLabel = nil;
 static UILabel *SCTimeLabel = nil;
+static UILabel *SCBatteryLabel = nil;
 static NSDateFormatter *SCFormatter = nil;
 static NSTimer *SCEnforceTimer = nil;
 static NSInteger SCLoggedState = -1;
 static BOOL SCEnabledCache = YES;
 static NSTimeInterval SCEnabledChecked = 0;
 
-// The switch in the settings pane writes "enabled" into the package's own
-// preferences domain; anything but an explicit false means on. The pane also
-// writes the plist file directly (the Settings app's cfprefsd write can be
-// dropped on iOS 16), so the file is read first.
+static NSString *SCPrefsPath(void) {
+    return @"/var/mobile/Library/Preferences/com.evander.smallclock.plist";
+}
+
+// A switch of the settings pane: the pane writes the plist file itself (the
+// Settings app's cfprefsd write is dropped on iOS 16), so the file is read
+// first and cfprefsd is the fallback.
+static BOOL SCPrefBool(NSString *key, BOOL fallback) {
+    NSDictionary *stored = [NSDictionary dictionaryWithContentsOfFile:SCPrefsPath()];
+    id value = stored[key];
+    if (value == nil) {
+        value = CFBridgingRelease(CFPreferencesCopyAppValue((__bridge CFStringRef)key,
+                                                            CFSTR(APELIN_PACKAGE_ID)));
+    }
+    if ([value respondsToSelector:@selector(boolValue)]) {
+        return [value boolValue];
+    }
+    return fallback;
+}
+
 static BOOL SCIsEnabled(void) {
     NSTimeInterval now = [NSDate timeIntervalSinceReferenceDate];
     if (SCEnabledChecked > 0 && now - SCEnabledChecked < 0.5) {
         return SCEnabledCache;
     }
     SCEnabledChecked = now;
-
-    BOOL enabled = YES;
-    NSDictionary *stored =
-        [NSDictionary dictionaryWithContentsOfFile:
-            @"/var/mobile/Library/Preferences/com.evander.smallclock.plist"];
-    id value = stored[@"enabled"];
-    if (value == nil) {
-        value = CFBridgingRelease(CFPreferencesCopyAppValue(CFSTR("enabled"),
-                                                            CFSTR(APELIN_PACKAGE_ID)));
-    }
-    if (value != nil) {
-        if ([value respondsToSelector:@selector(boolValue)]) {
-            enabled = [value boolValue];
-        }
-    }
-    SCEnabledCache = enabled;
-    return enabled;
+    SCEnabledCache = SCPrefBool(@"enabled", YES);
+    return SCEnabledCache;
 }
 
 #pragma mark - View lookup
@@ -160,6 +162,25 @@ static NSString *SCNowString(void) {
     return [SCFormatter stringFromDate:[NSDate date]];
 }
 
+static NSString *SCBatteryString(void) {
+    UIDevice *device = [UIDevice currentDevice];
+    if (!device.batteryMonitoringEnabled) {
+        device.batteryMonitoringEnabled = YES;
+    }
+    float level = device.batteryLevel;
+    if (level < 0.0f) {
+        return nil;
+    }
+    NSInteger percent = (NSInteger)(level * 100.0f + 0.5f);
+    if (percent < 0) {
+        percent = 0;
+    }
+    if (percent > 100) {
+        percent = 100;
+    }
+    return [NSString stringWithFormat:@"%ld%%", (long)percent];
+}
+
 static UILabel *SCCreateLabel(void) {
     UILabel *label = [[UILabel alloc] initWithFrame:CGRectZero];
     label.textColor = [UIColor colorWithWhite:1.0 alpha:0.96];
@@ -179,12 +200,27 @@ static CGSize SCMeasure(NSString *text, UIFont *font) {
     return [text sizeWithAttributes:@{NSFontAttributeName: font}];
 }
 
+// Anything else that draws text in the Lock Screen header (the charging
+// percentage the system or a tweak shows there, a subtitle, the system date)
+// goes away with the clock; only our own labels stay.
+static void SCHideOtherLabels(UIView *view) {
+    for (UIView *subview in view.subviews) {
+        if ([subview isKindOfClass:[UILabel class]] &&
+            subview != SCDateLabel && subview != SCTimeLabel &&
+            subview != SCBatteryLabel) {
+            subview.hidden = YES;
+        }
+        SCHideOtherLabels(subview);
+    }
+}
+
 static void SCApply(UIView *root) {
     if (root == nil) {
         return;
     }
     UIView *timeBox = SCFind(root, @"CSProminentTimeView");
     UIView *dateBox = SCFind(root, @"CSProminentSubtitleDateView");
+    UIView *displayView = SCFind(root, @"CSProminentDisplayView");
     UILabel *systemDate = SCFirstLabel(dateBox);
     if (dateBox == nil || systemDate == nil) {
         return;
@@ -200,12 +236,14 @@ static void SCApply(UIView *root) {
 
     if (!SCIsEnabled()) {
         // Off: hand the header back to SpringBoard, untouched.
+        displayView.hidden = NO;
         if (timeBox != nil) {
             timeBox.hidden = NO;
         }
         systemDate.hidden = NO;
         SCDateLabel.hidden = YES;
         SCTimeLabel.hidden = YES;
+        SCBatteryLabel.hidden = YES;
         if (SCLoggedState != 0) {
             SCLoggedState = 0;
             os_log(SCLog(), "disabled: system clock restored");
@@ -220,6 +258,9 @@ static void SCApply(UIView *root) {
     if (timeBox != nil) {
         timeBox.hidden = YES;
     }
+    // The whole system header (clock, date, vibrancy replicas, charging text)
+    // is replaced by our row.
+    displayView.hidden = YES;
     systemDate.hidden = YES;
     SCHideGlassClockViews(root);
 
@@ -229,20 +270,40 @@ static void SCApply(UIView *root) {
     if (SCTimeLabel == nil) {
         SCTimeLabel = SCCreateLabel();
     }
+    if (SCBatteryLabel == nil) {
+        SCBatteryLabel = SCCreateLabel();
+    }
     if (SCDateLabel.superview != root) {
         [root addSubview:SCDateLabel];
     }
     if (SCTimeLabel.superview != root) {
         [root addSubview:SCTimeLabel];
     }
+    if (SCBatteryLabel.superview != root) {
+        [root addSubview:SCBatteryLabel];
+    }
+
+    if (!SCPrefBool(@"lunar", YES)) {
+        NSRange dot = [dateText rangeOfString:@"·"];
+        if (dot.location != NSNotFound) {
+            dateText = [[dateText substringToIndex:dot.location]
+                stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+        }
+    }
+    NSString *batteryText = SCPrefBool(@"battery", NO) ? SCBatteryString() : nil;
+
     SCDateLabel.hidden = NO;
     SCTimeLabel.hidden = NO;
+    SCBatteryLabel.hidden = (batteryText == nil);
     if (![SCDateLabel.text isEqualToString:dateText]) {
         SCDateLabel.text = dateText;
     }
     NSString *now = SCNowString();
     if (![SCTimeLabel.text isEqualToString:now]) {
         SCTimeLabel.text = now;
+    }
+    if (batteryText != nil && ![SCBatteryLabel.text isEqualToString:batteryText]) {
+        SCBatteryLabel.text = batteryText;
     }
 
     CGFloat available = root.bounds.size.width - SC_ROW_MARGIN * 2.0;
@@ -252,6 +313,7 @@ static void SCApply(UIView *root) {
     UIFont *timeFont = nil;
     CGSize dateMeasure = CGSizeZero;
     CGSize timeMeasure = CGSizeZero;
+    CGSize batteryMeasure = CGSizeZero;
 
     for (NSInteger attempt = 0; attempt < 8; attempt++) {
         dateFont = [UIFont systemFontOfSize:dateSize weight:UIFontWeightSemibold];
@@ -259,7 +321,11 @@ static void SCApply(UIView *root) {
                                                     weight:UIFontWeightSemibold];
         dateMeasure = SCMeasure(dateText, dateFont);
         timeMeasure = SCMeasure(now, timeFont);
-        CGFloat total = dateMeasure.width + SC_ROW_GAP + timeMeasure.width;
+        batteryMeasure = batteryText.length ? SCMeasure(batteryText, timeFont) : CGSizeZero;
+        CGFloat total = timeMeasure.width + SC_ROW_GAP + dateMeasure.width;
+        if (batteryText.length) {
+            total += SC_ROW_GAP + batteryMeasure.width;
+        }
         if (total <= available || dateSize <= SC_MIN_FONT_SIZE) {
             break;
         }
@@ -276,8 +342,15 @@ static void SCApply(UIView *root) {
         fabs(SCTimeLabel.font.pointSize - timeFont.pointSize) > 0.05) {
         SCTimeLabel.font = timeFont;
     }
+    if (![SCBatteryLabel.font.fontName isEqualToString:timeFont.fontName] ||
+        fabs(SCBatteryLabel.font.pointSize - timeFont.pointSize) > 0.05) {
+        SCBatteryLabel.font = timeFont;
+    }
 
-    CGFloat total = dateMeasure.width + SC_ROW_GAP + timeMeasure.width;
+    CGFloat total = timeMeasure.width + SC_ROW_GAP + dateMeasure.width;
+    if (batteryText.length) {
+        total += SC_ROW_GAP + batteryMeasure.width;
+    }
     CGFloat rowLeft = (root.bounds.size.width - total) / 2.0;
     CGFloat centerY = CGRectGetMidY(dateRect);
 
@@ -286,6 +359,14 @@ static void SCApply(UIView *root) {
     SCDateLabel.frame = CGRectMake(rowLeft + timeMeasure.width + SC_ROW_GAP,
                                    centerY - dateMeasure.height / 2.0,
                                    dateMeasure.width, dateMeasure.height);
+    if (batteryText.length) {
+        SCBatteryLabel.frame =
+            CGRectMake(rowLeft + timeMeasure.width + SC_ROW_GAP + dateMeasure.width + SC_ROW_GAP,
+                       centerY - batteryMeasure.height / 2.0,
+                       batteryMeasure.width, batteryMeasure.height);
+    }
+
+    SCHideOtherLabels(root);
 }
 
 static IMP SCSavedOriginal(id self) {

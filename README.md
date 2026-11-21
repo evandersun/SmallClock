@@ -20,11 +20,18 @@ iOS 16 的锁屏头部来自 `SBFLockScreenDateView`：`CSProminentTimeView` 里
 
 ## 开关
 
-设置 App ▸ SmallClock ▸ 小时间：打开是小数时间行，关闭立即把系统原来的大时钟交还回去，不用注销。
+设置 App ▸ SmallClock：
 
-开关值写在 `/var/mobile/Library/Preferences/com.evander.smallclock.plist` 的 `enabled` 键。
+- **小时间**：打开是小数时间行，关闭立即把系统原来的大时钟交还回去，不用注销。
+- **显示农历日期**：关掉后日期只留“月日 星期”，去掉“· 丙午年十月十三”那段。
+- **显示当前电量**：打开后行末显示电量百分比（默认关）。
+
+开关值写在 `/var/mobile/Library/Preferences/com.evander.smallclock.plist`（键 `enabled`、`lunar`、`battery`）。
 iOS 16 上设置 App 通过 cfprefsd 写这个域会被丢掉，所以设置页自己把 plist 文件写出来，
 插件也优先读这个文件。
+
+整个系统头部（`CSProminentDisplayView`，包含大时钟、日期、vibrancy 副本，以及充电时那段电量文字）
+在打开时会被隐藏，行内容全部由插件自己绘制。
 
 ## 构建
 

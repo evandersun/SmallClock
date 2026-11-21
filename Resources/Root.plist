@@ -32,9 +32,43 @@
 			<key>cell</key>
 			<string>PSGroupCell</string>
 			<key>label</key>
+			<string>显示内容</string>
+		</dict>
+		<dict>
+			<key>cell</key>
+			<string>PSSwitchCell</string>
+			<key>label</key>
+			<string>显示农历日期</string>
+			<key>key</key>
+			<string>lunar</string>
+			<key>default</key>
+			<true/>
+			<key>defaults</key>
+			<string>com.evander.smallclock</string>
+			<key>PostNotification</key>
+			<string>com.evander.smallclock/changed</string>
+		</dict>
+		<dict>
+			<key>cell</key>
+			<string>PSSwitchCell</string>
+			<key>label</key>
+			<string>显示当前电量</string>
+			<key>key</key>
+			<string>battery</string>
+			<key>default</key>
+			<false/>
+			<key>defaults</key>
+			<string>com.evander.smallclock</string>
+			<key>PostNotification</key>
+			<string>com.evander.smallclock/changed</string>
+		</dict>
+		<dict>
+			<key>cell</key>
+			<string>PSGroupCell</string>
+			<key>label</key>
 			<string>说明</string>
 			<key>footerText</key>
-			<string>若安装了 SystemBox 的玻璃锁屏时钟，开启本开关时它的玻璃大钟会被隐藏，两者不能同时显示。</string>
+			<string>关闭「显示农历日期」后，只保留“月日 星期”；打开「显示当前电量」后，行末显示电量百分比。若安装了 SystemBox 的玻璃锁屏时钟，开启小时间时它的玻璃大钟会被隐藏。</string>
 		</dict>
 	</array>
 </dict>

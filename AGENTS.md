@@ -35,7 +35,7 @@ SBFLockScreenDateView
 
 ## 设置面板
 - `Sources/Prefs.m` + `Resources/Root.plist` → `/Library/PreferenceBundles/SmallClockPrefs.bundle`，
-  入口 `/Library/PreferenceLoader/Preferences/SmallClock.plist`，开关写 `enabled`。
+  入口 `/Library/PreferenceLoader/Preferences/SmallClock.plist`，三个开关：`enabled`、`lunar`、`battery`。
 - 坑：设置 App 通过 cfprefsd 写 `com.evander.smallclock` 域在 iOS 16 上会被丢掉（域文件根本没生成，
   重启设置后开关又变回默认）。所以 `setPreferenceValue:specifier:` 里直接把
   `/var/mobile/Library/Preferences/com.evander.smallclock.plist` 写出来，插件优先读这个文件。
@@ -47,6 +47,8 @@ SBFLockScreenDateView
 - 用户装了 **SystemBoxClockGlass**（`com.wkk.systembox`），它在锁屏时钟位置画玻璃面板
   （`LGClockGlassView` / `LGClockReplacementTimeView`）并隐藏系统时间标签。本插件把这些视图
   强制隐藏，锁屏上只留小时间行。要恢复玻璃时钟就停用本插件，或以后加开关。
+- 充电时系统会在头部画一段灰色“电量 N%”，它不是 `SBFLockScreenDateView` 里的 UILabel
+  （遍历所有窗口也找不到），最后是靠整块隐藏 `CSProminentDisplayView` 才消失的。
 
 ## 怎么看效果
 - 只有设备真的在锁屏页（CoverSheet 已生成）时才会布局；解锁在首页时看不到、也抓不到。
