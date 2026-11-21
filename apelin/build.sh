@@ -10,7 +10,7 @@ trap 'rm -rf -- "${stage:?}"' EXIT
 
 NAME=SmallClock
 VERSION=1.0.0
-PKGID=local.apelin.smallclock
+PKGID=com.evander.smallclock
 
 cd "${APELIN_PROJECT_ROOT:?}"
 
@@ -39,8 +39,8 @@ Version: ${VERSION}
 Architecture: ${APELIN_ARCHITECTURE}
 Name: SmallClock
 Description: 把锁屏的大时钟缩小到日期行里，日期与时间排成一行。
-Maintainer: Liquid glass <mobile@localhost>
-Author: Liquid glass
+Maintainer: evander <evander@users.noreply.github.com>
+Author: evander
 Section: Tweaks
 Depends: mobilesubstrate
 EOF

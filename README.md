@@ -4,7 +4,7 @@
 
 - 适用：iOS 16（在 iPhone X / iOS 16.7.15 上开发与测试）
 - 注入：SpringBoard（`com.apple.springboard`）
-- 包标识：`local.apelin.smallclock`（占位，发布前会换成正式标识）
+- 包标识：`com.evander.smallclock`
 
 ## 做了什么
 

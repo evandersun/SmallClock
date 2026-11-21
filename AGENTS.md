@@ -9,7 +9,7 @@ iOS 16 锁屏「小时钟」：把锁屏的大时钟缩成一小行，和日期�
   这台 A11 的 ld 不接受 arm64e，所以只编 arm64，包里的 `Architecture` 仍是 iphoneos-arm64e。
 - 产物：`SmallClock.dylib` + `SmallClock.plist`（过滤器，只注入 com.apple.springboard），
   装到 `/Library/MobileSubstrate/DynamicLibraries/`。
-- 包标识目前是占位的 `local.apelin.smallclock`，发布前要和用户确认正式标识。
+- 包标识 `com.evander.smallclock`（作者 evander）。
 
 ## 源码
 - `Sources/Tweak.m`：全部逻辑。钩子走 `dlsym` 拿到 `MSHookMessageEx`，不直接链接
