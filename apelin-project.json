@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 1,
+  "projectID": "14ff0f19-3407-4097-ac28-7f348fc0d1fd",
+  "kind": "workspace",
+  "buildSystem": "external",
+  "displayName": "Liquid glass",
+  "autoName": false,
+  "external": {
+    "script": "apelin/build.sh",
+    "interpreter": "sh",
+    "arguments": []
+  }
+}
